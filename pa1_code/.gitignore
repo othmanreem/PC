@@ -1,0 +1,17 @@
+# Compiled binaries
+oddevensort
+oddevensort_par
+pcc_seq
+pcc_par
+verify
+
+# Output files
+*.dat
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~

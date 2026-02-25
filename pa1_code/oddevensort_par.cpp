@@ -2,49 +2,32 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
-#include <thread>
-#include <barrier>
+#include <omp.h>
 
-// Parallelized odd-even sort algorithm using C++ threads
-// The algorithm alternates between odd and even phases where independent pairs
-// of elements can be compared and swapped in parallel within each phase.
-void oddeven_sort_par(std::vector<int>& numbers, unsigned int num_threads = 4)
+// Parallelised oddeven sort algo using openmp
+// openmp has better implicit barriers at the end of parallel for loops
+void oddeven_sort_par(std::vector<int>& numbers, int num_threads = 4)
 {
-    auto s = numbers.size();
+    int s = static_cast<int>(numbers.size());
     
-    // Create a barrier to synchronize threads between phases
-    std::barrier<> phase_barrier(num_threads);
+    omp_set_num_threads(num_threads);
     
-    // Function that each thread executes
-    auto thread_work = [&](unsigned int thread_id) {
-        // Iterate through all phases
+    // Use a parallel region that persists, this avoids thread creation and destruction overhead for each phase
+    #pragma omp parallel
+    {
         for (int i = 1; i <= s; i++) {
-            // Each thread handles a subset of the comparisons
-            // Start position for this phase
+            // phased
             int start = i % 2;
             
-            // Each thread processes every (2 * num_threads)-th pair
-            // This distributes the work evenly across threads
-            for (int j = start + thread_id * 2; j < s - 1; j = j + 2 * num_threads) {
+            // parallelise the for loop
+            #pragma omp for schedule(static)
+            for (int j = start; j < s - 1; j += 2) {
                 if (numbers[j] > numbers[j + 1]) {
                     std::swap(numbers[j], numbers[j + 1]);
                 }
             }
-            
-            // Wait for all threads to finish this phase before moving to the next
-            phase_barrier.arrive_and_wait();
+            // implicit barrier at end of omp for loop
         }
-    };
-    
-    // Create and launch all threads
-    std::vector<std::thread> threads;
-    for (unsigned int i = 0; i < num_threads; i++) {
-        threads.emplace_back(thread_work, i);
-    }
-    
-    // Wait for all threads to complete
-    for (auto& t : threads) {
-        t.join();
     }
 }
 
@@ -57,24 +40,25 @@ void print_sort_status(const std::vector<int>& numbers)
 
 int main(int argc, char* argv[])
 {
-    constexpr unsigned int size = 100000; // Number of elements in the input
+    int size = 524288;
     
-    // Determine number of threads from command line or default to 4
-    unsigned int num_threads = 4;
+    // threads num from cmd line or then 4
+    int num_threads = 4;
     if (argc > 1) {
         num_threads = std::stoi(argv[1]);
     }
+    if (argc > 2) {
+        size = std::stoi(argv[2]);
+    }
     
-    // Initialize a vector with integers of value 0
+    // vector to hold the numbers and add randoms
     std::vector<int> numbers(size);
-    
-    // Populate our vector with (pseudo)random numbers
     srand(time(0));
     std::generate(numbers.begin(), numbers.end(), rand);
     
     print_sort_status(numbers);
     
-    std::cout << "Running with " << num_threads << " threads\n";
+    std::cout << "Array size: " << size << ", Threads: " << num_threads << "\n";
     
     auto start = std::chrono::steady_clock::now();
     oddeven_sort_par(numbers, num_threads);
