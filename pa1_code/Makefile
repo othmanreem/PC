@@ -16,12 +16,19 @@ oddevensort: oddevensort.cpp
 pcc_seq: pcc_seq.cpp
 	$(CXX) pcc_seq.cpp -lm -std=c++17 -o pcc_seq
 
-# --- Parallel (students add oddevensort_par.cpp and pcc_par.cpp) ---
+# --- Parallel OpenMP versions ---
 oddevensort_par: oddevensort_par.cpp
 	$(CXX) oddevensort_par.cpp $(OPENMP_FLAGS) -std=c++17 -o oddevensort_par
 
 pcc_par: pcc_seq_par.cpp
 	$(CXX) pcc_seq_par.cpp $(OPENMP_FLAGS) -lm -std=c++17 -o pcc_par
+
+# --- Parallel std::thread versions ---
+oddevensort_std: oddevensort_std.cpp
+	$(CXX) oddevensort_std.cpp -std=c++20 -o oddevensort_std
+
+pcc_std: pcc_seq_std.cpp
+	$(CXX) pcc_seq_std.cpp -lm -std=c++20 -o pcc_std
 
 # PCC output verifier (floating-point comparison)
 verify: verify.c
@@ -32,4 +39,4 @@ benchmark-pcc: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par ./verify
 
 clean:
-	rm -rf oddevensort oddevensort_par pcc_seq pcc_par verify *.dat
+	rm -rf oddevensort oddevensort_par oddevensort_std pcc_seq pcc_par pcc_std verify *.dat
