@@ -40,6 +40,7 @@ void calcmean(double *matrix, double *mean, int num_threads){
 	
 	// Thread storage vector
 	std::vector<std::thread> threads;
+	threads.reserve(num_threads); // Reserve space to avoid resizing
 	// Static distribution: divide rows evenly among threads
 	int rows_per_thread = (ROWS + num_threads - 1) / num_threads;
 	
@@ -75,6 +76,7 @@ void calc_mm_std(double *matrix, double *mean, double *mm, double *std_dev, int 
 	
 	// Thread storage vector
 	std::vector<std::thread> threads;
+	threads.reserve(num_threads); // Reserve space to avoid resizing
 	// Static distribution: divide rows evenly among threads
 	int rows_per_thread = (ROWS + num_threads - 1) / num_threads;
 	
@@ -130,6 +132,7 @@ void pearson(double *mm, double *std_dev, double *output, int num_threads){
 	
 	// Thread storage vector
 	std::vector<std::thread> threads;
+	threads.reserve(num_threads); // Reserve space to avoid resizing
 	// Spawn worker threads
 	for (int t = 0; t < num_threads; t++) {
 		threads.emplace_back(worker);
