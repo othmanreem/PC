@@ -1,109 +1,108 @@
 // oddevensort_par.cu
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
+
+#include <vector>
+#include <algorithm>
+#include <iostream>
+#include <chrono>
 #include <cuda_runtime.h>
 
 // Single-block kernel 
-__global__ void oddEvenSort_SingleBlock(int *arr, int n) {
+// All threads live in ONE block. Phases are serialized by __syncthreads().
+__global__ void oddeven_sort_single_block(int* d_arr, int n) {
     int tid = threadIdx.x;
-    for (int phase = 0; phase < n; phase++) {
-        int i = 2 * tid + (phase % 2);
-        if (i + 1 < n) {
-            if (arr[i] > arr[i + 1]) {
-                int tmp = arr[i];
-                arr[i] = arr[i + 1];
-                arr[i + 1] = tmp;
+
+    for (int phase = 1; phase <= n; phase++) {
+        int start = phase % 2; // 0 = even phase, 1 = odd phase
+
+        // Each thread handles one pair: index (start + 2*tid)
+        int j = start + 2 * tid;
+        if (j < n - 1) {
+            if (d_arr[j] > d_arr[j + 1]) {
+                int tmp = d_arr[j];
+                d_arr[j] = d_arr[j + 1];
+                d_arr[j + 1] = tmp;
             }
         }
-        __syncthreads(); // sync all threads after every phase
+        __syncthreads(); // Barrier between every phase
     }
 }
 
-// Multi-block kernel 
-
-__global__ void oddEvenSort_OnePhase(int *arr, int n, int phase) {
+__global__ void oddeven_phase_multi_block(int* d_arr, int n, int phase_parity) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int i = 2 * tid + (phase % 2);
-    if (i + 1 < n) {
-        if (arr[i] > arr[i + 1]) {
-            int tmp = arr[i];
-            arr[i] = arr[i + 1];
-            arr[i + 1] = tmp;
+    int j = phase_parity + 2 * tid; // which pair this thread compares
+
+    if (j < n - 1) {
+        if (d_arr[j] > d_arr[j + 1]) {
+            int tmp = d_arr[j];
+            d_arr[j] = d_arr[j + 1];
+            d_arr[j + 1] = tmp;
         }
     }
 }
 
-int isSorted(int *arr, int n) {
-    for (int i = 0; i < n - 1; i++) {
-        if (arr[i] > arr[i + 1]) return 0;
+void run_multi_block(int* d_arr, int n, int threadsPerBlock) {
+    int pairs = n / 2;
+    int blocks = (pairs + threadsPerBlock - 1) / threadsPerBlock;
+
+    for (int phase = 1; phase <= n; phase++) {
+        int parity = phase % 2; // 0 or 1
+        oddeven_phase_multi_block<<<blocks, threadsPerBlock>>>(d_arr, n, parity);
+        cudaDeviceSynchronize(); // Global sync between phases
     }
-    return 1;
 }
 
-int main(int argc, char** argv) {
-     int n = 2048; 
-    if (argc > 1) n = atoi(argv[1]);
+int main() {
+    const int SIZE = 1 << 19; 
+    const int THREADS = 512;
 
-    size_t size = n * sizeof(int);
+    // Generate random data
+    std::vector<int> h_original(SIZE);
+    srand(time(0));
+    std::generate(h_original.begin(), h_original.end(), rand);
 
-    // Generate random input on Host 
-    int *h_arr = (int *)malloc(size);
-    srand(42);
-    for (int i = 0; i < n; i++) h_arr[i] = rand() % 10000;
+    // Allocate device memory
+    int* d_arr;
+    cudaMalloc(&d_arr, SIZE * sizeof(int));
 
-    // Allocate Device Memory 
-    int *d_arr;
-    cudaMalloc(&d_arr, size);
+    // VARIANT 1: Single-block (limited to 1024*2 = 2048 elements)
+    {
+        const int SMALL = 2048; // Single-block limit
+        std::vector<int> h_data(h_original.begin(), h_original.begin() + SMALL);
 
-    // Timing Setup 
-    float ms_single = 0, ms_multi = 0;
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+        cudaMemcpy(d_arr, h_data.data(), SMALL * sizeof(int), cudaMemcpyHostToDevice);
 
-    // RUN 1: Single block version
-    cudaMemcpy(d_arr, h_arr, size, cudaMemcpyHostToDevice);
-    int threads_needed = n / 2; 
-
-    if (threads_needed > 1024) {
-        printf("Skipping Single-Block: n is too large (max 2048).\n");
-    } else {
-        cudaEventRecord(start);
-        oddEvenSort_SingleBlock<<<1, threads_needed>>>(d_arr, n);
-        cudaEventRecord(stop);
+        auto start = std::chrono::steady_clock::now();
+        oddeven_sort_single_block<<<1, SMALL / 2>>>(d_arr, SMALL);
         cudaDeviceSynchronize();
-        cudaEventElapsedTime(&ms_single, start, stop);
+        auto end = std::chrono::steady_clock::now();
 
-        int *res1 = (int *)malloc(size);
-        cudaMemcpy(res1, d_arr, size, cudaMemcpyDeviceToHost);
-        printf("Single-block | Sorted: %s | Time: %f ms\n", isSorted(res1, n) ? "YES" : "NO", ms_single);
-        free(res1);
+        cudaMemcpy(h_data.data(), d_arr, SMALL * sizeof(int), cudaMemcpyDeviceToHost);
+
+        bool ok = std::is_sorted(h_data.begin(), h_data.end());
+        std::cout << "[Single-block] Sorted: " << (ok ? "YES" : "NO") << "\n";
+        std::cout << "[Single-block] Time: "
+                  << std::chrono::duration<double>(end - start).count() << " s\n\n";
     }
 
-    // RUN 2: Multi block version 
-    cudaMemcpy(d_arr, h_arr, size, cudaMemcpyHostToDevice); // reset data
+    // VARIANT 2: Multi-block (scales to arbitrary sizes)
+    {
+        std::vector<int> h_data = h_original; // Full 2^19 array
 
-    int threadsPerBlock = 256;
-    int blocks = (threads_needed + threadsPerBlock - 1) / threadsPerBlock;
+        cudaMemcpy(d_arr, h_data.data(), SIZE * sizeof(int), cudaMemcpyHostToDevice);
 
-    cudaEventRecord(start);
-    for (int phase = 0; phase < n; phase++) {
-        oddEvenSort_OnePhase<<<blocks, threadsPerBlock>>>(d_arr, n, phase);
+        auto start = std::chrono::steady_clock::now();
+        run_multi_block(d_arr, SIZE, THREADS);
+        auto end = std::chrono::steady_clock::now();
+
+        cudaMemcpy(h_data.data(), d_arr, SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+
+        bool ok = std::is_sorted(h_data.begin(), h_data.end());
+        std::cout << "[Multi-block]  Sorted: " << (ok ? "YES" : "NO") << "\n";
+        std::cout << "[Multi-block]  Time: "
+                  << std::chrono::duration<double>(end - start).count() << " s\n\n";
     }
-    cudaEventRecord(stop);
-    cudaDeviceSynchronize();
-    cudaEventElapsedTime(&ms_multi, start, stop);
 
-    int *res2 = (int *)malloc(size);
-    cudaMemcpy(res2, d_arr, size, cudaMemcpyDeviceToHost);
-    printf("Multi-block  | Sorted: %s | Time: %f ms\n", isSorted(res2, n) ? "YES" : "NO", ms_multi);
-
-    // Cleanup
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
     cudaFree(d_arr);
-    free(h_arr); 
-    free(res2);
     return 0;
 }
+
