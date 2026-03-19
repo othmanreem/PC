@@ -22,14 +22,26 @@
 int COLS = 128;
 int ROWS = 128;
 
+// Cross-platform drand48 implementation (matches POSIX drand48 behavior)
+static unsigned long long drand48_seed = 0x1234ABCD330E;
+
+void srand48_compat(long seed) {
+    drand48_seed = ((unsigned long long)seed << 16) | 0x330E;
+}
+
+double drand48_compat() {
+    drand48_seed = (drand48_seed * 0x5DEECE66DULL + 0xBULL) & 0xFFFFFFFFFFFFULL;
+    return (double)drand48_seed / (double)0x1000000000000ULL;
+}
+
 /**
  * Generate matrix in-place using seeded drand48() for reproducible data.
  * Must match the sequential version exactly.
  **/
 void generatematrix(double *matrix, unsigned long seed) {
-    srand48((long)seed);
+    srand48_compat((long)seed);
     for (int i = 0; i < ROWS * COLS; i++) {
-        matrix[i] = drand48();
+        matrix[i] = drand48_compat();
     }
 }
 
