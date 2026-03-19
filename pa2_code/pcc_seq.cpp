@@ -8,6 +8,18 @@
 int COLS = 128;
 int ROWS = 128;
 
+// Cross-platform drand48 implementation for Windows compatibility
+#ifdef _WIN32
+static unsigned long long _drand48_seed = 0x1234ABCD330E;
+void srand48(long seed) {
+    _drand48_seed = ((unsigned long long)seed << 16) | 0x330E;
+}
+double drand48() {
+    _drand48_seed = (_drand48_seed * 0x5DEECE66DULL + 0xBULL) & 0xFFFFFFFFFFFFULL;
+    return (double)_drand48_seed / (double)0x1000000000000ULL;
+}
+#endif
+
 /**
  * Generate matrix in-place using seeded drand48() for reproducible data.
  **/
