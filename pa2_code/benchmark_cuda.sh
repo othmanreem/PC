@@ -31,10 +31,47 @@ fi
 
 echo -e "${CYAN}=== Part 1: Odd-Even Sort ===${END}"
 echo ""
-echo "Running oddevensort_cuda (includes both single-block and multi-block variants)..."
+
+# ── Sequential reference ──────────────────────────────────────────
+echo -e "${CYAN}=== SEQUENTIAL ODD-EVEN SORT ===${END}"
+if [ ! -f "./oddevensort" ]; then
+    echo -e "${RED}Error: oddevensort not found. Run 'make' first.${END}"
+else
+    seq_ref_output=$(./oddevensort 2>&1)
+    echo "$seq_ref_output"
+    seq_time=$(echo "$seq_ref_output" \
+        | grep "Elapsed time" \
+        | sed 's/.*Elapsed time =  *\([0-9.]*\).*/\1/')
+fi
+
 echo ""
 
-./oddevensort_cuda
+# ── CUDA variants ─────────────────────────────────────────────────
+echo -e "${CYAN}=== CUDA ODD-EVEN SORT ===${END}"
+echo "Running oddevensort_cuda (single-block and multi-block variants)..."
+echo ""
+
+cuda_sort_output=$(./oddevensort_cuda 2>&1)
+echo "$cuda_sort_output"
+
+# ── Speedup ───────────────────────────────────────────────────────
+echo ""
+echo -e "${CYAN}=== SPEEDUP SUMMARY ===${END}"
+
+multi_time_100k=$(echo "$cuda_sort_output" \
+    | grep "\[Multi-block\].*n=100000" \
+    | sed 's/.*Time=\([0-9.]*\)s.*/\1/')
+
+if [ -n "$seq_time" ] && [ -n "$multi_time_100k" ]; then
+    speedup=$(awk -v s="$seq_time" -v c="$multi_time_100k" \
+        'BEGIN { printf "%.2f", s/c }')
+    echo "  Sequential (100K):         ${seq_time}s"
+    echo "  CUDA multi-block (100K):   ${multi_time_100k}s"
+    echo -e "  ${YELLOW}Speedup: ${speedup}x${END}"
+else
+    echo "  Sequential (100K): ${seq_time}s"
+    echo "  (Multi-block 100K time not found — check CUDA binary output format)"
+fi
 
 echo ""
 
